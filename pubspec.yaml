@@ -1,0 +1,56 @@
+name: palestine_real_estate
+description: "Real Estate Application for Palestine with ArcGIS integration"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # ArcGIS Maps SDK for Flutter
+  arcgis_maps: ^300.0.0
+
+  # State Management
+  get: ^4.7.2
+
+  # HTTP Clients
+  http: ^1.3.0
+  dio: ^5.7.0
+  pretty_dio_logger: ^1.4.0
+
+  # Code Generation
+  freezed_annotation: ^2.4.4
+  json_annotation: ^4.9.0
+
+  # Localization & Formatting
+  intl: ^0.20.2
+
+  # Image Caching
+  cached_network_image: ^3.4.1
+
+  # Location Services
+  geolocator: ^14.0.2
+  geocoding: ^3.0.0
+
+  # Utilities
+  uuid: ^4.5.1
+  path_provider: ^2.1.5
+  share_plus: ^10.1.4
+  url_launcher: ^6.3.1
+  flutter_dotenv: ^5.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.4.14
+  freezed: ^2.5.7
+  json_serializable: ^6.9.4
+
+flutter:
+  uses-material-design: true
