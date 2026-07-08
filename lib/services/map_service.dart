@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
 import 'package:arcgis_maps/arcgis_maps.dart';
 import '../config/app_constants.dart';
 
@@ -85,30 +84,12 @@ class MapService {
     return layer;
   }
 
+  /// Uses server-side labelingInfo from Parcels_04 (200.x compatible).
+  /// Client-side LabelDefinition requires SDK 300.x.
   static FeatureLayer createParcelsFeatureLayerWithLabels({bool visible = true}) {
-    final table = createParcelsTable();
-    final layer = FeatureLayer.withFeatureTable(table);
+    final layer = FeatureLayer.withFeatureTable(createParcelsTable());
     layer.isVisible = visible;
-
-    final expression = SimpleLabelExpression(
-      simpleExpression: '[ParcelNumber]',
-    );
-
-    final textSymbol = TextSymbol(
-      color: Colors.white,
-      size: 12,
-    );
-    textSymbol.haloColor = Colors.black87;
-    textSymbol.haloWidth = 2;
-
-    final labelDef = LabelDefinition(
-      labelExpression: expression,
-      textSymbol: textSymbol,
-    );
-
-    layer.labelDefinitions.add(labelDef);
     layer.labelsEnabled = true;
-
     return layer;
   }
 

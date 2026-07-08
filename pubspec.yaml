@@ -12,8 +12,8 @@ dependencies:
 
   cupertino_icons: ^1.0.8
 
-  # ArcGIS Maps SDK for Flutter (300.x for LabelDefinition support)
-  arcgis_maps: ^300.0.0
+  # ArcGIS Maps SDK for Flutter (200.x for AGP 9.0 compatibility)
+  arcgis_maps: ^200.0.0
 
   # State Management
   get: ^4.7.2
