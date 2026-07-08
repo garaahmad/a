@@ -3,7 +3,10 @@ class AppConstants {
 
   // Map Service URLs
   static const String parcelsServiceUrl =
-      '$baseUrl/Parcels_01/MapServer';
+      '$baseUrl/Parcels_04/MapServer';
+
+  static const String parcels04ServiceUrl =
+      '$baseUrl/Parcels_04/MapServer';
 
   static const String roadsServiceUrl =
       '$baseUrl/Roads/MapServer';
@@ -27,6 +30,10 @@ class AppConstants {
   static const String orthophoto2022Url =
       'https://orthophotos.geomolg.ps/adaptor/rest/services/Ortho2022/ImageServer';
 
+  // Coordinate System EPSG Codes
+  static const int palestine1923Epsg = 28191;
+  static const int wgs84Epsg = 4326;
+
   // Query Parameters
   static const String outputFields = '*';
   static const String returnGeometry = 'true';
@@ -34,6 +41,11 @@ class AppConstants {
   static const String identifyFormat = 'json';
   static const int identifyTolerance = 10;
   static const int maxRecordCount = 2000;
+
+  // API Retry Configuration
+  static const int maxRetries = 3;
+  static const int timeoutSeconds = 30;
+  static const int retryDelayMs = 1000;
 
   // Layer IDs
   static const int parcelsLayerId = 0;

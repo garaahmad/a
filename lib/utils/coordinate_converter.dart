@@ -1,127 +1,186 @@
 import 'dart:math';
+import 'package:proj4dart/proj4dart.dart';
+import '../models/coordinate_model.dart';
+import '../config/app_constants.dart';
 
 class CoordinateConverter {
   CoordinateConverter._();
 
-  static final double _a = 6378137.0;
-  static final double _f = 1 / 298.257223563;
-  static final double _e2 = 2 * _f - _f * _f;
+  static Projection? _palestine1923Proj;
+  static Projection? _wgs84Proj;
 
-  // ignore: unused_field
-  static final double _phi0 = 31.7341 * pi / 180;
-  static final double _lambda0 = 35.2127 * pi / 180;
-  static final double _k0 = 0.9996;
-  static final double _falseEasting = 500000;
-  static final double _falseNorthing = 0;
-
-  static final double _e4 = _e2 * _e2;
-  static final double _e6 = _e4 * _e2;
-
-  static List<double>? palestineGridToWgs84({
-    required double easting,
-    required double northing,
-    String grid = '28191',
-  }) {
-    if (grid == '28191') {
-      return _palestine1923ToWgs84(easting, northing);
-    }
-    return null;
+  static Projection get _palestine1923 {
+    _palestine1923Proj ??= Projection.get('EPSG:${AppConstants.palestine1923Epsg}');
+    return _palestine1923Proj!;
   }
 
-  static List<double>? wgs84ToPalestineGrid({
+  static Projection get _wgs84 {
+    _wgs84Proj ??= Projection.get('EPSG:${AppConstants.wgs84Epsg}');
+    return _wgs84Proj!;
+  }
+
+  static CoordinateModel convertWgs84ToPalestine1923({
     required double latitude,
     required double longitude,
-    String grid = '28191',
   }) {
-    if (grid == '28191') {
-      return _wgs84ToPalestine1923(latitude, longitude);
+    _validateLatLng(latitude, longitude);
+
+    try {
+      final src = _wgs84;
+      final dst = _palestine1923;
+      final point = src.transform(dst, Point(x: longitude, y: latitude));
+
+      final easting = point.x;
+      final northing = point.y;
+
+      return CoordinateModel.fromWgs84(
+        latitude: latitude,
+        longitude: longitude,
+        easting: easting,
+        northing: northing,
+      );
+    } catch (e) {
+      return _fallbackWgs84ToPalestine1923(latitude, longitude);
     }
-    return null;
   }
 
-  static List<double> _palestine1923ToWgs84(
-      double easting, double northing) {
-    final dx = easting - _falseEasting;
-    final dy = northing - _falseNorthing;
+  static CoordinateModel convertPalestine1923ToWgs84({
+    required double easting,
+    required double northing,
+  }) {
+    try {
+      final src = _palestine1923;
+      final dst = _wgs84;
+      final point = src.transform(dst, Point(x: easting, y: northing));
 
-    final m = dy / _k0;
-    final mu = m / (_a * (1 - _e2 / 4 - 3 * _e4 / 64 - 5 * _e6 / 256));
+      final longitude = point.x;
+      final latitude = point.y;
 
-    final e1 = (1 - sqrt(1 - _e2)) / (1 + sqrt(1 - _e2));
-
-    final phi1 = mu +
-        3 * e1 / 2 * sin(2 * mu) -
-        5 * e1 * e1 / 16 * sin(4 * mu) -
-        7 * e1 * e1 * e1 / 48 * sin(6 * mu);
-
-    final sinPhi1 = sin(phi1);
-    final cosPhi1 = cos(phi1);
-    final tanPhi1 = sinPhi1 / cosPhi1;
-
-    final n = _a / sqrt(1 - _e2 * sinPhi1 * sinPhi1);
-    final t = tanPhi1 * tanPhi1;
-    final c = _e2 / (1 - _e2) * cosPhi1 * cosPhi1;
-
-    final r = _a * (1 - _e2) / pow(1 - _e2 * sinPhi1 * sinPhi1, 1.5);
-
-    final d = dx / (n * _k0);
-
-    final latitude = phi1 -
-        n * tanPhi1 / r *
-            (d * d / 2 -
-                (5 + 3 * t + 10 * c - 4 * c * c - 9 * _e2) * d * d * d * d / 24 +
-                (61 + 90 * t + 298 * c + 45 * t * t - 252 * _e2 - 3 * c * c) *
-                    d * d * d * d * d * d /
-                    720);
-
-    final longitude = _lambda0 +
-        (d -
-            (1 + 2 * t + c) * d * d * d / 6 +
-            (5 - 2 * c + 28 * t - 3 * c * c + 8 * _e2 + 24 * t * t) *
-                d * d * d * d * d /
-                120) /
-            cosPhi1;
-
-    return [latitude * 180 / pi, longitude * 180 / pi];
+      return CoordinateModel.fromPalestine1923(
+        easting: easting,
+        northing: northing,
+        latitude: latitude,
+        longitude: longitude,
+      );
+    } catch (e) {
+      return _fallbackPalestine1923ToWgs84(easting, northing);
+    }
   }
 
-  static List<double> _wgs84ToPalestine1923(
-      double latitude, double longitude) {
+  static CoordinateModel _fallbackWgs84ToPalestine1923(
+    double latitude,
+    double longitude,
+  ) {
+    final coords = _manualWgs84ToPalestine1923(latitude, longitude);
+    return CoordinateModel.fromWgs84(
+      latitude: latitude,
+      longitude: longitude,
+      easting: coords[0],
+      northing: coords[1],
+    );
+  }
+
+  static CoordinateModel _fallbackPalestine1923ToWgs84(
+    double easting,
+    double northing,
+  ) {
+    final coords = _manualPalestine1923ToWgs84(easting, northing);
+    return CoordinateModel.fromPalestine1923(
+      easting: easting,
+      northing: northing,
+      latitude: coords[0],
+      longitude: coords[1],
+    );
+  }
+
+  static void _validateLatLng(double latitude, double longitude) {
+    if (latitude < -90 || latitude > 90) {
+      throw ArgumentError('Latitude must be between -90 and 90: $latitude');
+    }
+    if (longitude < -180 || longitude > 180) {
+      throw ArgumentError('Longitude must be between -180 and 180: $longitude');
+    }
+  }
+
+  // Manual Palestine 1923 (EPSG:28191) parameters
+  // Cassini-Soldner projection for Palestine
+  static final double _a = 6378300.0;
+  static final double _f = 1 / 298.3;
+  static final double _e2 = 2 * _f - _f * _f;
+  static final double _phi0 = 31.7341 * pi / 180;
+  static final double _lambda0 = 35.2127 * pi / 180;
+  static final double _falseEasting = 170000.0;
+  static final double _falseNorthing = 0.0;
+
+  static List<double> _manualWgs84ToPalestine1923(
+    double latitude,
+    double longitude,
+  ) {
     final phi = latitude * pi / 180;
     final lambda = longitude * pi / 180;
 
+    final dLambda = lambda - _lambda0;
     final sinPhi = sin(phi);
     final cosPhi = cos(phi);
-    final tanPhi = sinPhi / cosPhi;
 
-    final n = _a / sqrt(1 - _e2 * sinPhi * sinPhi);
-    final t = tanPhi * tanPhi;
-    final c = _e2 / (1 - _e2) * cosPhi * cosPhi;
+    final m = _a * (1 - _e2) / pow(1 - _e2 * sinPhi * sinPhi, 1.5);
 
-    final a = (lambda - _lambda0) * cosPhi;
+    final nu = _a / sqrt(1 - _e2 * sinPhi * sinPhi);
 
-    final m = _a * ((1 - _e2 / 4 - 3 * _e4 / 64 - 5 * _e6 / 256) * phi -
-        (3 * _e2 / 8 + 3 * _e4 / 32 + 45 * _e6 / 1024) * sin(2 * phi) +
-        (15 * _e4 / 256 + 45 * _e6 / 1024) * sin(4 * phi) -
-        35 * _e6 / 3072 * sin(6 * phi));
+    final easting = _falseEasting +
+        nu * dLambda * cosPhi +
+        nu * dLambda * dLambda * dLambda * cosPhi * cosPhi * cosPhi *
+            (1 - tan(phi) * tan(phi) + _e2 * cosPhi * cosPhi) / 6;
 
-    final easting = _k0 * n *
-            (a +
-                (1 - t + c) * a * a * a / 6 +
-                (5 - 18 * t + t * t + 72 * c - 58 * _e2) * a * a * a * a * a /
-                    120) +
-        _falseEasting;
-
-    final northing = _k0 *
-        (m +
-            n * tanPhi *
-                (a * a / 2 +
-                    (5 - t + 9 * c + 4 * c * c) * a * a * a * a / 24 +
-                    (61 - 58 * t + t * t + 600 * c - 330 * _e2) *
-                        a * a * a * a * a * a /
-                        720));
+    final northing = _falseNorthing +
+        m * (phi - _phi0) +
+        nu * dLambda * dLambda * sinPhi * cosPhi / 2;
 
     return [easting, northing];
+  }
+
+  static List<double> _manualPalestine1923ToWgs84(
+    double easting,
+    double northing,
+  ) {
+    final dx = easting - _falseEasting;
+    final dy = northing - _falseNorthing;
+
+    final phi1 = _phi0 + dy / (_a * (1 - _e2));
+    double phi = phi1;
+
+    for (int i = 0; i < 5; i++) {
+      final sinPhi = sin(phi);
+      final m = _a * (1 - _e2) / pow(1 - _e2 * sinPhi * sinPhi, 1.5);
+      phi = phi1 + dy / m - (phi - phi1);
+    }
+
+    final sinPhi = sin(phi);
+    final cosPhi = cos(phi);
+    final nu = _a / sqrt(1 - _e2 * sinPhi * sinPhi);
+
+    final dLambda = dx / (nu * cosPhi);
+
+    final latitude = phi * 180 / pi;
+    final longitude = (_lambda0 + dLambda) * 180 / pi;
+
+    return [latitude, longitude];
+  }
+
+  static CoordinateModel convertGeometry({
+    required Map<String, dynamic> geometry,
+  }) {
+    final type = geometry['type'] as String?;
+    if (type == 'Point') {
+      final coords = geometry['coordinates'] as List<dynamic>;
+      if (coords.length >= 2) {
+        return convertPalestine1923ToWgs84(
+          easting: (coords[0] as num).toDouble(),
+          northing: (coords[1] as num).toDouble(),
+        );
+      }
+    }
+    throw ArgumentError('Unsupported geometry type: $type');
   }
 
   static double calculateDistance({

@@ -12,8 +12,8 @@ dependencies:
 
   cupertino_icons: ^1.0.8
 
-  # ArcGIS Maps SDK for Flutter
-  arcgis_maps: ^200.0.0
+  # ArcGIS Maps SDK for Flutter (300.x for LabelDefinition support)
+  arcgis_maps: ^300.0.0
 
   # State Management
   get: ^4.7.2
@@ -22,6 +22,10 @@ dependencies:
   http: ^1.3.0
   dio: ^5.7.0
   pretty_dio_logger: ^1.4.0
+  dio_smart_retry: ^5.0.0
+
+  # Coordinate System Conversion
+  proj4dart: ^2.1.0
 
   # Code Generation
   freezed_annotation: ^2.4.4

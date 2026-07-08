@@ -1,8 +1,10 @@
 import 'package:dio/dio.dart';
+import 'package:dio_smart_retry/dio_smart_retry.dart';
 import 'package:pretty_dio_logger/pretty_dio_logger.dart';
 import '../config/arcgis_config.dart';
 import '../config/app_constants.dart';
 import '../models/search_result_model.dart';
+import '../utils/coordinate_converter.dart';
 import '../utils/logger.dart';
 
 class GeomolgApiService {
@@ -14,9 +16,9 @@ class GeomolgApiService {
       BaseOptions(
         baseUrl: ArcGISConfig.baseUrl,
         connectTimeout:
-            const Duration(milliseconds: ArcGISConfig.connectTimeoutMs),
+            const Duration(seconds: AppConstants.timeoutSeconds),
         receiveTimeout:
-            const Duration(milliseconds: ArcGISConfig.requestTimeoutMs),
+            const Duration(seconds: AppConstants.timeoutSeconds),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -26,7 +28,13 @@ class GeomolgApiService {
 
     _dio.interceptors.addAll([
       _AuthInterceptor(),
-      _RetryInterceptor(),
+      RetryInterceptor(
+        dio: _dio,
+        logPrint: (message) => AppLogger.debug('Retry: $message'),
+        retries: AppConstants.maxRetries,
+        retryDelays: _buildRetryDelays(),
+        retryableExtraStatuses: {429, 503, 502, 504},
+      ),
       PrettyDioLogger(
         requestHeader: true,
         requestBody: true,
@@ -43,6 +51,15 @@ class GeomolgApiService {
     return _instance!;
   }
 
+  static List<Duration> _buildRetryDelays() {
+    return List.generate(
+      AppConstants.maxRetries,
+      (i) => Duration(
+        milliseconds: AppConstants.retryDelayMs * (1 << i),
+      ),
+    );
+  }
+
   Future<SearchResultModel> searchByParcelNumber({
     required String parcelNumber,
     int offset = 0,
@@ -56,8 +73,10 @@ class GeomolgApiService {
         limit: limit,
       );
       return SearchResultModel.fromGeoJsonResponse(response);
+    } on DioException catch (e) {
+      return SearchResultModel.withError(_formatDioError(e));
     } catch (e) {
-      return SearchResultModel.withError(_formatError(e));
+      return SearchResultModel.withError(_formatGenericError(e));
     }
   }
 
@@ -75,8 +94,10 @@ class GeomolgApiService {
         limit: limit,
       );
       return SearchResultModel.fromGeoJsonResponse(response);
+    } on DioException catch (e) {
+      return SearchResultModel.withError(_formatDioError(e));
     } catch (e) {
-      return SearchResultModel.withError(_formatError(e));
+      return SearchResultModel.withError(_formatGenericError(e));
     }
   }
 
@@ -93,8 +114,10 @@ class GeomolgApiService {
         limit: limit,
       );
       return SearchResultModel.fromGeoJsonResponse(response);
+    } on DioException catch (e) {
+      return SearchResultModel.withError(_formatDioError(e));
     } catch (e) {
-      return SearchResultModel.withError(_formatError(e));
+      return SearchResultModel.withError(_formatGenericError(e));
     }
   }
 
@@ -112,8 +135,10 @@ class GeomolgApiService {
         limit: limit,
       );
       return SearchResultModel.fromGeoJsonResponse(response);
+    } on DioException catch (e) {
+      return SearchResultModel.withError(_formatDioError(e));
     } catch (e) {
-      return SearchResultModel.withError(_formatError(e));
+      return SearchResultModel.withError(_formatGenericError(e));
     }
   }
 
@@ -122,12 +147,32 @@ class GeomolgApiService {
     required double yMin,
     required double xMax,
     required double yMax,
+    bool isWgs84 = true,
     int offset = 0,
     int limit = AppConstants.maxRecordCount,
   }) async {
     try {
+      double pxMin = xMin, pyMin = yMin, pxMax = xMax, pyMax = yMax;
+
+      if (isWgs84) {
+        final sw = CoordinateConverter.convertWgs84ToPalestine1923(
+          latitude: yMin,
+          longitude: xMin,
+        );
+        final ne = CoordinateConverter.convertWgs84ToPalestine1923(
+          latitude: yMax,
+          longitude: xMax,
+        );
+        pxMin = sw.easting;
+        pyMin = sw.northing;
+        pxMax = ne.easting;
+        pyMax = ne.northing;
+      }
+
       final geometry =
-          '{"xmin":$xMin,"ymin":$yMin,"xmax":$xMax,"ymax":$yMax,"spatialReference":{"wkid":4326}}';
+          '{"xmin":$pxMin,"ymin":$pyMin,"xmax":$pxMax,"ymax":$pyMax,'
+          '"spatialReference":{"wkid":${AppConstants.palestine1923Epsg}}}';
+
       final response = await _queryParcels(
         geometry: geometry,
         geometryType: 'esriGeometryEnvelope',
@@ -136,8 +181,10 @@ class GeomolgApiService {
         limit: limit,
       );
       return SearchResultModel.fromGeoJsonResponse(response);
+    } on DioException catch (e) {
+      return SearchResultModel.withError(_formatDioError(e));
     } catch (e) {
-      return SearchResultModel.withError(_formatError(e));
+      return SearchResultModel.withError(_formatGenericError(e));
     }
   }
 
@@ -147,17 +194,26 @@ class GeomolgApiService {
     int tolerance = AppConstants.identifyTolerance,
   }) async {
     try {
+      final coords = CoordinateConverter.convertWgs84ToPalestine1923(
+        latitude: latitude,
+        longitude: longitude,
+      );
+
+      final mapX = coords.easting;
+      final mapY = coords.northing;
+
+      final extent = _buildIdentifyExtent(mapX, mapY, tolerance);
+
       final url = '${AppConstants.parcelsServiceUrl}/identify';
       final response = await _dio.get(
         url,
         queryParameters: {
-          'geometry': '$longitude,$latitude',
+          'geometry': '$mapX,$mapY',
           'geometryType': 'esriGeometryPoint',
+          'mapExtent': extent,
+          'imageDisplay': '1200,800,96',
           'layers': 'all',
           'tolerance': tolerance.toString(),
-          'mapExtent':
-              '${longitude - 0.01},${latitude - 0.01},${longitude + 0.01},${latitude + 0.01}',
-          'imageDisplay': '600,400,96',
           'returnGeometry': 'true',
           'f': AppConstants.identifyFormat,
         },
@@ -172,10 +228,62 @@ class GeomolgApiService {
         throw const AppException('No parcel found at this location');
       }
       throw AppException('Identify failed: ${response.statusCode}');
+    } on DioException catch (e) {
+      AppLogger.error('Identify parcel request failed', e);
+      rethrow;
     } catch (e) {
       AppLogger.error('Identify parcel failed', e);
       rethrow;
     }
+  }
+
+  Future<Map<String, dynamic>> identifyParcelOnLayer({
+    required double mapX,
+    required double mapY,
+    required double extentXMin,
+    required double extentYMin,
+    required double extentXMax,
+    required double extentYMax,
+    int tolerance = AppConstants.identifyTolerance,
+    String layerUrl = 'Parcels_04',
+  }) async {
+    try {
+      final url = '${AppConstants.baseUrl}/$layerUrl/MapServer/identify';
+      final response = await _dio.get(
+        url,
+        queryParameters: {
+          'geometry': '$mapX,$mapY',
+          'geometryType': 'esriGeometryPoint',
+          'mapExtent': '$extentXMin,$extentYMin,$extentXMax,$extentYMax',
+          'imageDisplay': '1200,800,96',
+          'layers': 'all',
+          'tolerance': tolerance.toString(),
+          'returnGeometry': 'true',
+          'f': AppConstants.identifyFormat,
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final results = data['results'] as List<dynamic>? ?? [];
+        if (results.isNotEmpty) {
+          return results[0] as Map<String, dynamic>;
+        }
+        throw const AppException('No parcel found at this location');
+      }
+      throw AppException('Identify failed: ${response.statusCode}');
+    } on DioException catch (e) {
+      AppLogger.error('Identify parcel on layer request failed', e);
+      rethrow;
+    } catch (e) {
+      AppLogger.error('Identify parcel on layer failed', e);
+      rethrow;
+    }
+  }
+
+  String _buildIdentifyExtent(double cx, double cy, int tolerance) {
+    final halfSize = tolerance * 10.0;
+    return '${cx - halfSize},${cy - halfSize},${cx + halfSize},${cy + halfSize}';
   }
 
   Future<Map<String, dynamic>> getParcelDetails(int objectId) async {
@@ -187,6 +295,9 @@ class GeomolgApiService {
         return features[0] as Map<String, dynamic>;
       }
       throw const AppException('Parcel not found');
+    } on DioException catch (e) {
+      AppLogger.error('Get parcel details request failed', e);
+      rethrow;
     } catch (e) {
       AppLogger.error('Get parcel details failed', e);
       rethrow;
@@ -224,7 +335,8 @@ class GeomolgApiService {
       return response.data as Map<String, dynamic>;
     }
 
-    throw AppException('Query failed: ${response.statusCode}');
+    throw AppException('Query failed: ${response.statusCode}',
+        statusCode: response.statusCode);
   }
 
   String _escapeValue(String value) {
@@ -234,36 +346,44 @@ class GeomolgApiService {
         .trim();
   }
 
-  String _formatError(dynamic error) {
-    if (error is DioException) {
-      switch (error.type) {
-        case DioExceptionType.connectionTimeout:
-          return 'Connection timed out. Please check your network.';
-        case DioExceptionType.receiveTimeout:
-          return 'Server response timed out. Please try again.';
-        case DioExceptionType.connectionError:
-          return 'No internet connection. Please check your network.';
-        case DioExceptionType.badResponse:
-          final statusCode = error.response?.statusCode;
-          if (statusCode == 429) {
-            return 'Too many requests. Please wait and try again.';
-          }
-          if (statusCode == 403) {
-            return 'Access denied. Invalid API key.';
-          }
-          if (statusCode == 404) {
-            return 'Service endpoint not found.';
-          }
-          return 'Server error ($statusCode). Please try again later.';
-        case DioExceptionType.cancel:
-          return 'Request was cancelled.';
-        default:
-          return 'Network error occurred. Please try again.';
-      }
+  String _formatDioError(DioException error) {
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+        return 'Connection timed out. Please check your network and ensure you '
+            'are connected to a VPN if accessing from outside Palestine.';
+      case DioExceptionType.receiveTimeout:
+        return 'Server response timed out. The server may be slow or '
+            'unreachable. Please try again.';
+      case DioExceptionType.connectionError:
+        return 'No internet connection. Please check your network '
+            'and VPN connection.';
+      case DioExceptionType.badResponse:
+        final statusCode = error.response?.statusCode;
+        if (statusCode == 429) {
+          return 'Too many requests. Please wait a moment and try again.';
+        }
+        if (statusCode == 403) {
+          return 'Access denied. Your API key may be invalid or expired.';
+        }
+        if (statusCode == 404) {
+          return 'Service endpoint not found. The map service may be '
+              'temporarily unavailable.';
+        }
+        return 'Server error ($statusCode). Please try again later.';
+      case DioExceptionType.cancel:
+        return 'Request was cancelled.';
+      case DioExceptionType.badCertificate:
+        return 'SSL certificate error. The server connection may be insecure.';
+      default:
+        return 'Network error occurred. Please check your connection and try again.';
     }
+  }
+
+  String _formatGenericError(dynamic error) {
     if (error is AppException) {
       return error.message;
     }
+    AppLogger.error('Unexpected error', error);
     return 'An unexpected error occurred. Please try again.';
   }
 }
@@ -275,7 +395,7 @@ class AppException implements Exception {
   const AppException(this.message, {this.statusCode});
 
   @override
-  String toString() => 'AppException: $message';
+  String toString() => 'AppException: $message (status: $statusCode)';
 }
 
 class _AuthInterceptor extends Interceptor {
@@ -283,49 +403,5 @@ class _AuthInterceptor extends Interceptor {
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     options.queryParameters['token'] = ArcGISConfig.apiKey;
     handler.next(options);
-  }
-}
-
-class _RetryInterceptor extends Interceptor {
-  @override
-  void onError(DioException err, ErrorInterceptorHandler handler) async {
-    if (_shouldRetry(err)) {
-      for (var attempt = 1; attempt <= ArcGISConfig.maxRetries; attempt++) {
-        await Future.delayed(Duration(seconds: attempt * 2));
-        try {
-          final response = await _retryRequest(err.requestOptions);
-          handler.resolve(response);
-          return;
-        } catch (_) {
-          if (attempt == ArcGISConfig.maxRetries) {
-            handler.next(err);
-          }
-        }
-      }
-    } else {
-      handler.next(err);
-    }
-  }
-
-  bool _shouldRetry(DioException err) {
-    return err.type == DioExceptionType.connectionTimeout ||
-        err.type == DioExceptionType.receiveTimeout ||
-        err.type == DioExceptionType.connectionError ||
-        (err.type == DioExceptionType.badResponse &&
-            err.response?.statusCode != null &&
-            err.response!.statusCode! >= 500);
-  }
-
-  Future<Response> _retryRequest(RequestOptions requestOptions) async {
-    final dio = Dio();
-    return dio.request(
-      requestOptions.path,
-      data: requestOptions.data,
-      queryParameters: requestOptions.queryParameters,
-      options: Options(
-        method: requestOptions.method,
-        headers: requestOptions.headers,
-      ),
-    );
   }
 }

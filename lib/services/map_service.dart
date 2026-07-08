@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:arcgis_maps/arcgis_maps.dart';
 import '../config/app_constants.dart';
 
@@ -75,6 +76,73 @@ class MapService {
     final layer = FeatureLayer.withFeatureTable(createParcelsTable());
     layer.isVisible = visible;
     return layer;
+  }
+
+  static FeatureLayer createParcelsLayerWithLabels({bool visible = true}) {
+    final layer = FeatureLayer.withFeatureTable(createParcelsTable());
+    layer.isVisible = visible;
+    layer.labelsEnabled = true;
+    return layer;
+  }
+
+  static FeatureLayer createParcelsFeatureLayerWithLabels({bool visible = true}) {
+    final table = createParcelsTable();
+    final layer = FeatureLayer.withFeatureTable(table);
+    layer.isVisible = visible;
+
+    final expression = SimpleLabelExpression(
+      simpleExpression: '[ParcelNumber]',
+    );
+
+    final textSymbol = TextSymbol(
+      color: Colors.white,
+      size: 12,
+    );
+    textSymbol.haloColor = Colors.black87;
+    textSymbol.haloWidth = 2;
+
+    final labelDef = LabelDefinition(
+      labelExpression: expression,
+      textSymbol: textSymbol,
+    );
+
+    layer.labelDefinitions.add(labelDef);
+    layer.labelsEnabled = true;
+
+    return layer;
+  }
+
+  static ArcGISMapImageLayer createParcelsImageLayer({bool visible = true}) {
+    final layer = ArcGISMapImageLayer.withUri(
+      Uri.parse(AppConstants.parcels04ServiceUrl),
+    );
+    layer.isVisible = visible;
+    return layer;
+  }
+
+  static ArcGISMapImageLayer createParcelsImageLayerWithLabels({bool visible = true}) {
+    final layer = ArcGISMapImageLayer.withUri(
+      Uri.parse(AppConstants.parcels04ServiceUrl),
+    );
+    layer.isVisible = visible;
+
+    if (layer.loadStatus == LoadStatus.loaded) {
+      _enableSublayerLabels(layer);
+    }
+
+    layer.onLoadStatusChanged.listen((LoadStatus status) {
+      if (status == LoadStatus.loaded) {
+        _enableSublayerLabels(layer);
+      }
+    });
+
+    return layer;
+  }
+
+  static void _enableSublayerLabels(ArcGISMapImageLayer layer) {
+    for (final sublayer in layer.mapImageSublayers) {
+      sublayer.labelsEnabled = true;
+    }
   }
 
   static FeatureLayer createRoadsLayer({bool visible = true}) {
